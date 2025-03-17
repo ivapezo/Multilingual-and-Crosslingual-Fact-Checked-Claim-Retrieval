@@ -4,8 +4,6 @@ Ensuring the accuracy of online information is crucial in today's digital landsc
 
 A **key component** of this process is **retrieving previously fact-checked claims**, allowing fact-checking systems to efficiently match new claims with existing fact-checks.  
 
----
-
 ## 🚀 Overview  
 In this work, we present a **hybrid retrieval pipeline** that combines:  
 - **Lexical Retrieval (BM25)** – Fast but limited to exact word matches.  
@@ -19,8 +17,6 @@ Additionally, we analyze:
 - **Error analysis** to identify key limitations and future improvements.  
 
 This approach was applied to **[SemEval-2025 Task 7](https://disai.eu/semeval-2025/)**, where we present our findings and insights.  
-
----
 
 ## 📂 Dataset  
 
