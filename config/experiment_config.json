@@ -1,0 +1,11 @@
+{
+    "experiment_name": "monolingual_bm25",
+    "data_dir": "Task7/data",
+    "output_dir": "Task7/results",
+    "preprocessing_config": "Task7/config/preprocessing_config.json",
+    "tokenizer_config": "Task7/config/tokenizer_config.json",
+    "model_config": "Task7/config/model_config_bm25.json",
+    "languages": ["crosslingual"],
+    "stages": ["train"],
+    "top_n": 100
+}

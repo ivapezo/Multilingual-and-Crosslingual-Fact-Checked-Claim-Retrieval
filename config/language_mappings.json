@@ -1,0 +1,30 @@
+{
+    "lemmer_codes": {
+            "ast": "ast", "bul": "bg", "cat": "ca", "ces": "cs", "cym": "cy", "dan": "da", "deu": "de", 
+            "ell": "el", "eng": "en", "enm": "en", "spa": "es", "est": "et", "fas": "fa", "fin": "fi",
+            "fra": "fr", "hbs":"hbs", "gle": "ga", "gla": "gd", "glg": "gl", "glv": "gv", "hin": "hi",
+            "hun": "hu", "hye": "hy", "ind": "id", "isl": "is", "ita": "it", "kat": "ka", "lat": "la",
+            "ltz": "lb", "lit": "lt", "lav": "lv", "mkd": "mk", "msa": "ms", "nob": "nb", "nld": "nl",
+            "nno": "nn", "pol": "pl", "por": "pt", "ron": "ro", "rus": "ru", "sme": "se", "slk": "sk", 
+            "slv": "sl", "sqi": "sq", "swe": "sv", "swa": "sw", "tgl": "tl", "tur": "tr", "ukr": "uk"
+        },
+
+    "adv_encoding": {
+            "ara": "arabic","aze": "azerbaijani","ben": "bengali", "cat": "catalan", "zho": "chinese",
+            "hrv": "croatian", "dan": "danish", "nld": "dutch", "eng": "english", "fin": "finnish", 
+            "fra": "french", "deu": "german", "ell": "greek", "heb": "hebrew", "hin": "hindi", "hun": "hungarian",
+            "ind": "indonesian", "gle": "irish", "ita": "italian", "jpn": "japanese", "kaz": "kazakh", "nep": "nepali",
+            "nor": "norwegian", "fas": "persian", "pol": "polish", "por": "portuguese", "ron": "romanian", "rus": "russian",
+            "sin": "sinhala", "spa": "spanish", "swe": "swedish", "tgl": "tagalog", "tam": "tamil", "tat": "tatar",
+            "tel": "telugu", "tha": "thai", "tur": "turkish", "ukr": "ukrainian", "urd": "urdu", "vie": "vietnamese"
+        },
+
+    "nltk_encoding": {
+            "eng": "english", "spa": "spanish", "fra": "french", "deu": "german", "por": "portuguese", 
+            "ara": "arabic", "ita": "italian", "zho": "chinese", "rus": "russian", "tur": "turkish", 
+            "aze": "azerbaijani", "eus": "basque", "ben": "bengali", "cat": "catalan", "dan": "danish", 
+            "nld": "dutch", "fin": "finnish", "ell": "greek", "heb": "hebrew", "hing": "hinglish", 
+            "hun": "hungarian", "ind": "indonesian", "kaz": "kazakh", "nep": "nepali", "nor": "norwegian", 
+            "ron": "romanian", "slv": "slovene", "swe": "swedish", "tgk": "tajik"
+        }
+    }

@@ -1,0 +1,12 @@
+{
+    "model_name": "BM25Okapi",
+    "model_params": {
+      "k1": 1.5,
+      "b": 0.85
+    },
+    "evaluation_metrics": ["S_at_k", "MRR", "P_at_k"],
+    "top_n": 400,
+    "version": 1,
+    "save_predictions": "predictions_bm25_top_"
+  }
+  
