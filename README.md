@@ -38,7 +38,7 @@ Make sure you have Python 3.8+ installed.
 To run the full pipeline, configure the following files:
 
 1. *experiment_config.json* → Define languages, stages, and setup.
-2. *pipeline_config.json* → Specify models, retrieval methods, and ensemblers.
+2. *pipeline_config.json* → Specify retrievers and rerankers, and ensemblers.
 3. *model_config_bm25.json* → Set BM25 hyperparameters.
 
 ## Run the Full Pipeline
@@ -47,24 +47,16 @@ To execute the retrieval, reranking, and ensembling pipeline:
 ```bash
 python ./src/pipeline.py
 ```
-## Run Individual Components
-You can also run individual retrieval, reranking, or ensembling modules:
-
-```bash
-python ./src/retrieving.py      # Retrieve top-k fact-checked claims  
-python ./src/reranking.py        # Rerank retrieved claims  
-python ./src/ensembling.py      # Aggregate multiple retrieval results  
-```
 
 ## ⚙️ Pipeline Workflow
 The retrieval and reranking pipeline follows these steps:
 
 **1. Retrieval Phase**
-- Uses BM25 and Neural Retrievers (Bi-Encoders, Cross-Encoders).
+- Uses BM25 and semantic retrievers (Bi-Encoders, Cross-Encoders).
 - Retrieves top N fact-checked claims for each query.
 
 **2. Ensembling of Retrieval Results**
-- Combines BM25 and Neural Retriever results using a weighted ensembling approach.
+- Combines BM25 and neural retrievers results using a weighted ensembling approach and RRF.
 
 **3. Reranking Phase**
 - Uses transformer-based cross-encoders to refine the ranking of retrieved claims.
