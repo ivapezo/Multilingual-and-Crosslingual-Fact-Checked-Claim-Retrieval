@@ -6,45 +6,11 @@ import torch
 from typing import Dict, List, Union
 import torch 
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
 
 from helpers import calculate_success_at_10, load_config, preprocess_dataframe, save_predictions
-from rerankers import GritLMReranker, MultiGPUReranker, QwenReranker, Reranker
-from retrievers import BiEncoderRetriever, CrossEncoderRetriever, Retriever
 
-def average_pool(last_hidden_states: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    """
-    Average pools the hidden states based on the attention mask.
-    """
-    last_hidden = last_hidden_states.masked_fill(~attention_mask[..., None].bool(), 0.0)
-    return last_hidden.sum(dim=1) / attention_mask.sum(dim=1).unsqueeze(-1).clamp(min=1e-9) # prevent division by zero
-
-def get_detailed_instruct(task_description: str, query: str) -> str:
-    """
-    Constructs an instruction-based query for multilingual reranking.
-    """
-    return f"Instruct: {task_description}\nQuery: {query}"
-
-def gritlm_instruction(instruction: str) -> str:
-    """
-    Formats the instruction for GritLM input.
-    """
-    return f"<|user|>\n{instruction}\n<|embed|>\n" if instruction else "<|embed|>\n"
-
-def last_token_pool(last_hidden_states: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    """
-    Perform last token pooling on the model's hidden states.
-    """
-    left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
-    if left_padding:
-        return last_hidden_states[:, -1]
-    else:
-        sequence_lengths = attention_mask.sum(dim=1) - 1
-        batch_size = last_hidden_states.shape[0]
-        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
-
-def get_retriever(config: Dict, device:str) -> Retriever:
+def get_retriever(config: Dict, device:str):
     """
     Creates a single retriever based on the configuration.
 
@@ -54,6 +20,7 @@ def get_retriever(config: Dict, device:str) -> Retriever:
     Returns:
         A retriever instance.
     """
+    from retrievers import BiEncoderRetriever, CrossEncoderRetriever, Retriever
     retriever_model = config["retriever_model"]
     model_name = config["model_name"]
     
@@ -64,7 +31,7 @@ def get_retriever(config: Dict, device:str) -> Retriever:
     else:
         return Retriever(retriever_model, model_name, device)
     
-def get_reranker(config: Dict, devices: list) -> Reranker:
+def get_reranker(config: Dict, devices: list):
     """
     Creates a reranker based on the configuration.
 
@@ -75,58 +42,68 @@ def get_reranker(config: Dict, devices: list) -> Reranker:
     Returns:
         A reranker instance.
     """
+    from rerankers import CrossEncoderGritLMReranker, BiEncoderReranker, CrossEncoderReranker, Reranker
+
     reranker_model = config["reranker_model"]
     model_name = config["model_name"]
 
-    if model_name == "MultiGPUReranker":
-        return MultiGPUReranker(reranker_model, model_name)
-    elif model_name=="QwenReranker":
-        return QwenReranker(reranker_model, model_name, config["max_length"])
-    elif model_name=="GritLMReranker":
-        return GritLMReranker(reranker_model, model_name)
+    if model_name == "BiEncoderReranker":
+        return BiEncoderReranker(reranker_model, model_name)
+    elif model_name=="CrossEncoderReranker":
+        return CrossEncoderReranker(reranker_model, model_name, config["max_length"])
+    elif model_name=="CrossEncoderGritLMReranker":
+        return CrossEncoderGritLMReranker(reranker_model, model_name)
     else:
         return Reranker(reranker_model, model_name, devices[0])
 
-def encode(self, combined_texts: List[str], max_length: int = 512, batch_size: int = 32) -> torch.Tensor:
+def retrieve(posts: pd.DataFrame, fact_checks: pd.DataFrame, query_embeddings: torch.Tensor, document_embeddings: torch.Tensor, n: int = 10, batch_size: int = 32):
     """
-    Encodes a list of combined texts (queries + documents) into embeddings using the model and average pooling.
+    Optimized retrieval function with batch processing and memory management.
+    
+    Args:
+        posts: DataFrame containing posts
+        fact_checks: DataFrame containing fact checks
+        query_embeddings: Tensor of query embeddings
+        document_embeddings: Tensor of document embeddings
+        n: Number of documents to retrieve
+        batch_size: Size of batches for processing
     """
-    tokenized_texts = self.tokenizer(combined_texts, max_length=max_length, padding=True, truncation=True, return_tensors="pt")
-    dataset = TensorDataset(tokenized_texts['input_ids'], tokenized_texts['attention_mask'])
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=DistributedSampler(dataset))
-
-    embeddings = []
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids, attention_mask = batch[0].to(self.device), batch[1].to(self.device)
-            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-            pooled_embeddings = average_pool(outputs.last_hidden_state, attention_mask)
-            embeddings.append(pooled_embeddings.cpu())
-    return torch.cat(embeddings, dim=0)
-
-def retrieve(posts: pd.DataFrame, fact_checks: pd.DataFrame, query_embeddings: torch.Tensor, document_embeddings: torch.Tensor, n: int = 10):
-    # Initialize results dictionary
     retrieved_results = {}
-    with torch.no_grad():
-        for i, post_id in enumerate(posts['post_id']):
-            query_embedding = query_embeddings[i]
-            if isinstance(query_embedding, np.ndarray):
-                query_embedding = torch.tensor(query_embedding)
-
-            # Get the embedding for the current query
-            query_embedding = query_embedding.unsqueeze(0)
-
-            # Calculate cosine similarity with document embeddings
-            similarity_scores = F.cosine_similarity(query_embedding, document_embeddings, dim=-1)
-
-            # Get top-N document indices based on similarity scores
-            actual_n = min(n, similarity_scores.size(0))
-            top_n_indices = similarity_scores.topk(actual_n).indices.tolist()
-            top_n_fact_check_ids = fact_checks['fact_check_id'].iloc[top_n_indices].tolist()
-
-            # Store the top-N fact_check_ids for the current post_id
-            retrieved_results[str(post_id)] = top_n_fact_check_ids
-
+    num_queries = len(posts)
+    
+    # Process queries in batches
+    for i in tqdm(range(0, num_queries, batch_size), desc="Processing queries"):
+        batch_end = min(i + batch_size, num_queries)
+        batch_post_ids = posts['post_id'].iloc[i:batch_end]
+        batch_query_embeddings = query_embeddings[i:batch_end]
+        
+        # Ensure tensors are on the correct device
+        if not isinstance(batch_query_embeddings, torch.Tensor):
+            batch_query_embeddings = torch.tensor(batch_query_embeddings)
+        if not isinstance(document_embeddings, torch.Tensor):
+            document_embeddings = torch.tensor(document_embeddings)
+            
+        # Calculate similarities for the batch
+        with torch.no_grad():
+            # Reshape query embeddings for batch processing
+            batch_query_embeddings = batch_query_embeddings.unsqueeze(1)
+            
+            # Calculate cosine similarity for the entire batch at once
+            similarity_scores = F.cosine_similarity(batch_query_embeddings, document_embeddings, dim=-1)
+            
+            # Get top-N indices for each query in the batch
+            actual_n = min(n, similarity_scores.size(1))
+            top_n_indices = similarity_scores.topk(actual_n).indices
+            
+            # Store results for each query in the batch
+            for j, post_id in enumerate(batch_post_ids):
+                top_n_fact_check_ids = fact_checks['fact_check_id'].iloc[top_n_indices[j]].tolist()
+                retrieved_results[str(post_id)] = top_n_fact_check_ids
+        
+        # Clear GPU cache if using GPU
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
     return retrieved_results
 
 def rerank(posts: pd.DataFrame, fact_checks: pd.DataFrame, query_embeddings: torch.Tensor, document_embeddings: torch.Tensor, top_retrieved: Dict[str, List[int]], n: int = 10):
@@ -157,7 +134,7 @@ def rerank(posts: pd.DataFrame, fact_checks: pd.DataFrame, query_embeddings: tor
 
 
 def process_language_stage(
-    model: Union[Retriever, Reranker],
+    model,
     lang: str, 
     stage: str, 
     experiment_config: Dict, 
@@ -229,6 +206,9 @@ def process_language_stage(
     posts = posts[posts['text'].str.strip() != ""]
     fact_checks = fact_checks[fact_checks['text'].str.strip() != ""]
 
+    print(posts["text"][0])
+    print(fact_checks["text"][0])
+
     model_name = model_config["model_name"]
     logging.info(f"Retrieving documents for Language: {lang}, Stage: {stage} using {model_name}")
     
@@ -294,7 +274,7 @@ def process_language_stage(
 
 
 def process_documents(
-    model: Union[Retriever, Reranker],
+    model,
     tasks: List[Dict], 
     experiment_config: Dict, 
     model_config: Dict, 
@@ -316,7 +296,8 @@ def process_documents(
     """
     results = []
     total_tasks = len(tasks)
-    logging.info(f"Starting {"reranking" if is_reranker else "retrieval"} for {total_tasks} tasks.")
+    task_type = "reranking" if is_reranker else "retrieval"
+    logging.info(f"Starting {task_type} for {total_tasks} tasks.")
 
     for idx, task in enumerate(tasks, 1):
         lang = task['language']
@@ -333,7 +314,7 @@ def process_documents(
         )
         results.append(result)
     
-    logging.info(f"Completed all {"reranking" if is_reranker else "retrieval"} tasks.")
+    logging.info(f"Completed all {task_type} tasks.")
     return results
 
 def log_results(results: List[Dict]):

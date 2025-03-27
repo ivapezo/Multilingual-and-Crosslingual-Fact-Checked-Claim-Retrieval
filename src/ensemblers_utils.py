@@ -49,8 +49,8 @@ def aggregate_predictions(
     """
     if not predictions_list:
         return {}
-    
-    weights = weights if weight else [1] * len(predictions_list)
+
+    weights = weights if weights else [1] * len(predictions_list)
     if len(weights) != len(predictions_list):
         print(len(predictions_list))
         raise ValueError("Number of weights must match the number of prediction lists.")
@@ -75,7 +75,8 @@ def aggregate_predictions(
 
     # Sort and extract top-N results
     final_predictions = {
-        post_id: [int(fact_check_id) for fact_check_id, _ in nlargest(top_n, fact_check_scores.items(), key=lambda x: x[1])]
+        #post_id: [int(fact_check_id) for fact_check_id, _ in nlargest(top_n, fact_check_scores.items(), key=lambda x: x[1])]
+        post_id: [fact_check_id for fact_check_id, _ in nlargest(top_n, fact_check_scores.items(), key=lambda x: x[1])]
         for post_id, fact_check_scores in aggregated.items()
     }
 
@@ -124,7 +125,7 @@ def evaluate_predictions(
                     top_n,
                 )
             except Exception as e:
-                logging.error(f"Error during Success@10 calculation for Post ID: {row["post_id"]}. Error: {e}")
+                logging.error(f"Error during Success@10 calculation for Post ID: {row['post_id']}. Error: {e}")
         return 0
 
     posts["success_at_k"] = posts.apply(compute_row_success, axis=1)

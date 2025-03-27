@@ -7,7 +7,8 @@ from typing import List, Dict
 import torch.nn.functional as F
 from transformers import AutoTokenizer
 from transformers import AutoModel, AutoTokenizer
-from models_utils import encode, gritlm_instruction, get_detailed_instruct, last_token_pool, rerank
+from models_utils import rerank
+from encoder_utils import encode, gritlm_instruction, get_detailed_instruct, last_token_pool
 
 class Reranker(abc.ABC):
     """
@@ -43,19 +44,19 @@ class Reranker(abc.ABC):
         """
         pass
 
-    def _encode(self, combined_texts: List[str], max_length: int = 512, batch_size: int = 32):
+    def _encode(self, combined_texts: List[str], max_length: int = 512, batch_size: int = 16):
         """
         Encodes a list of combined texts (queries + documents) into embeddings using the model and average pooling.
         """
         return encode(self, combined_texts)
     
-    def _encode_texts(self, texts: List[str], instruction: str = "", batch_size: int = 32) -> torch.Tensor:
+    def _encode_texts(self, texts: List[str], instruction: str = "", max_length: int = 512, batch_size: int = 16) -> torch.Tensor:
         """
         Process texts with an optional instruction and encode them.
         Subclasses can override this to modify the instruction handling.
         """
         processed_texts = [instruction + text if instruction else text for text in texts]
-        return self._encode(processed_texts, batch_size=batch_size)
+        return self._encode(processed_texts, batch_size=batch_size, max_length=max_length)
 
     
     def rerank_batch_with_ids(
@@ -65,7 +66,8 @@ class Reranker(abc.ABC):
         top_retrieved: Dict[str, List[int]],
         task_description: str = None,
         n: int = 10,
-        batch_size: int = 32
+        batch_size: int = 16,
+        max_length: int = 1024,
     ) -> Dict[str, List[int]]:
         """
         Reranks documents for multiple queries with or without task instructions.
@@ -93,7 +95,7 @@ class Reranker(abc.ABC):
 
          # Encode queries and documents together
         combined_texts = queries + documents
-        embeddings = self._encode(combined_texts, batch_size=batch_size)
+        embeddings = self._encode_texts(combined_texts, instruction="", batch_size=batch_size, max_length=max_length)
         
         # Separate query and document embeddings
         query_embeddings = embeddings[:len(queries)]
@@ -101,7 +103,7 @@ class Reranker(abc.ABC):
         
         return rerank(posts, fact_checks, query_embeddings, document_embeddings, top_retrieved, n)
 
-class BiEncoderReranker:
+class BiEncoderReranker(Reranker):
     def __init__(self, reranker_model: str, model_name: str):
         """
         Initialize the reranker with a pre-trained model and tokenizer.
@@ -134,7 +136,8 @@ class BiEncoderReranker:
         top_retrieved: Dict[str, List[int]],
         task_description: str = None,
         n: int = 10,
-        batch_size: int = 32
+        batch_size: int = 16,
+        max_length: int = 1024,
     ) -> Dict[str, List[int]]:
         """
         Reranks documents for multiple queries with or without task instructions.
@@ -159,14 +162,14 @@ class BiEncoderReranker:
         documents = fact_checks['text'].tolist()
 
         # Use the underlying module's _do_encode function
-        query_embeddings = self.model.module._do_encode(
+        query_embeddings = torch.from_numpy(self.model.module._do_encode(
             queries, batch_size=batch_size, instruction=query_prefix, 
-            max_length=1024, num_workers=32, return_numpy=True
-        )
-        document_embeddings = self.model.module._do_encode(
+            max_length=max_length, num_workers=32, return_numpy=True
+        ))
+        document_embeddings = torch.from_numpy(self.model.module._do_encode(
             documents, batch_size=batch_size, instruction="",
-            max_length=1024, num_workers=32, return_numpy=True
-        )
+            max_length=max_length, num_workers=32, return_numpy=True
+        ))
 
         return rerank(posts, fact_checks, query_embeddings, document_embeddings, top_retrieved, n)
 
@@ -202,7 +205,7 @@ class CrossEncoderGritLMReranker(Reranker):
         """
         return None
 
-    def _encode_texts(self, texts: List[str], instruction: str, batch_size: int = 32) -> torch.Tensor:
+    def _encode_texts(self, texts: List[str], instruction: str, max_length: int = 512, batch_size: int = 16) -> torch.Tensor:
         """
         Encode texts into embeddings using the GritLM model.
 
@@ -220,7 +223,7 @@ class CrossEncoderGritLMReranker(Reranker):
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
             with torch.no_grad():
-                batch_embeddings = self.model.encode(batch_texts, instruction=formatted_instruction)
+                batch_embeddings = self.model.encode(batch_texts, instruction=formatted_instruction, max_length=max_length)
                 embeddings.append(torch.tensor(batch_embeddings))
 
         return F.normalize(torch.cat(embeddings, dim=0), p=2, dim=1)
@@ -259,7 +262,7 @@ class CrossEncoderReranker(Reranker):
         """
         return AutoTokenizer.from_pretrained(self.reranker_model, device_map='auto', trust_remote_code=True)
 
-    def _encode_texts(self, texts: List[str], batch_size: int = 32) -> torch.Tensor:
+    def _encode_texts(self, texts: List[str], instruction: str = "", max_length: int = 512, batch_size: int = 16) -> torch.Tensor:
         """
         Encode texts into embeddings using last token pooling.
         """
@@ -282,7 +285,7 @@ class CrossEncoderReranker(Reranker):
                 except RuntimeError as e:
                     if "CUDA out of memory" in str(e):
                         print("Reducing batch size due to OOM")
-                        return self._encode_texts(texts, batch_size // 2)  # Retry with reduced batch size
+                        return self._encode_texts(texts, instruction, max_length, batch_size // 2)  # Retry with reduced batch size
                     raise
 
                 # Pool and normalize embeddings

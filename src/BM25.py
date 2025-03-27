@@ -80,8 +80,10 @@ def main():
                     relevant_docs = eval_query["relevant_docs"]
 
                 retrieved_docs = retrieve_top_n(bm25, query, top_n)
-                retrieved_docs = [int(fact_checks.iloc[doc_id]["fact_check_id"]) for doc_id in retrieved_docs]
-                predictions[int(post_id)] = retrieved_docs
+                #retrieved_docs = [int(fact_checks.iloc[doc_id]["fact_check_id"]) for doc_id in retrieved_docs]
+                #predictions[int(post_id)] = retrieved_docs
+                retrieved_docs = [fact_checks.iloc[doc_id]["fact_check_id"] for doc_id in retrieved_docs]
+                predictions[post_id] = retrieved_docs
 
                 if stage == "train":
                     total_success_at_10 += calculate_success_at_10(retrieved_docs, relevant_docs, top_n)

@@ -48,9 +48,11 @@ if __name__ == "__main__":
 
             # Save aggregated predictions
             try:
-                output_dir = Path(f'Task7/data/{lang}/{stage}/{ensembler_config.get("output_dir")}')
+                dir = ensembler_config["output_dir"]
+                file = ensembler_config["output_file"]
+                output_dir = Path(f'Task7/data/{lang}/{stage}/{dir}')
                 save_predictions(aggregated_predictions, output_dir, ensembler_config.get("output_file"))
-                logging.info(f"Retrieved documents saved to {output_dir}/{ensembler_config.get("output_file")}.json")
+                logging.info(f"Retrieved documents saved to {output_dir}/{file}.json")
             except Exception as e:
                 logging.error(f"Error saving predictions for Language: {lang}, Stage: {stage}. Error: {e}")
 

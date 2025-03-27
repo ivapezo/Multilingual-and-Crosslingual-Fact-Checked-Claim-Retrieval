@@ -6,7 +6,8 @@ from torch import nn
 from typing import List, Dict
 from transformers import AutoModel, AutoTokenizer
 from sentence_transformers import SentenceTransformer
-from models_utils import encode, retrieve, get_detailed_instruct
+from models_utils import retrieve
+from encoder_utils import encode, get_detailed_instruct
 
 class Retriever(abc.ABC):
     """
@@ -42,11 +43,11 @@ class Retriever(abc.ABC):
         """
         pass
 
-    def _encode(self, combined_texts: List[str]) -> torch.Tensor:
+    def _encode(self, combined_texts: List[str], batch_size: int, max_length: int) -> torch.Tensor:
         """
         Encodes a list of combined texts (queries + documents) into embeddings using the model and average pooling.
         """
-        return encode(self, combined_texts)
+        return encode(self, combined_texts, batch_size, max_length)
     
     def retrieve_batch_with_ids(
         self, 
@@ -82,7 +83,7 @@ class Retriever(abc.ABC):
         combined_texts = queries + documents_texts
         
         # Encode combined texts in a single batch to ensure aligned embeddings
-        embeddings = self._encode(combined_texts, batch_size=batch_size, max_length=max_length)
+        embeddings = self._encode(combined_texts, batch_size, max_length)
         
         # Separate query and document embeddings
         query_embeddings = embeddings[:len(queries)]
@@ -90,7 +91,7 @@ class Retriever(abc.ABC):
         
         return retrieve(posts, fact_checks, query_embeddings, document_embeddings, n)
 
-class BiEncoderRetriever:
+class BiEncoderRetriever(Retriever):
     def __init__(self, retriever_model: str, model_name: str):
         """
         Initialize the retriever with a pre-trained model and tokenizer.
@@ -102,7 +103,7 @@ class BiEncoderRetriever:
         """
         Load the model on a specific GPU and manage computation on other GPUs.
         """
-        model = SentenceTransformer("BAAI/bge-multilingual-gemma2", model_kwargs={"torch_dtype": torch.float16})
+        model = SentenceTransformer(self.retriever_model, model_kwargs={"torch_dtype": torch.float16})
         model = nn.DataParallel(model, device_ids=[0])  # Use available GPU IDs
         return model
 

@@ -12,7 +12,7 @@ import logging
 import os
 from preprocessing_pipeline import preprocessing
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1"#"2, 3, 4, 5" #"2 3" #"1"  # 1 = 5, 0 = 4, 2 = 0 (GeForce prvi)
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1" #"2, 3, 4, 5" #"2 3" #"1"  # 1 = 5, 0 = 4, 2 = 0 (GeForce prvi)
 
 def check_gpu_availability(min_free_gb: float = 1.0) -> list:
     """
@@ -85,7 +85,7 @@ def save_predictions(predictions, output_file_path: Path, file_name: str):
     Save predictions to the specified output file in json format.
     """
     output_file_path.mkdir(parents=True, exist_ok=True)
-    with open(output_file_path / f'{file_name}.json', 'w') as f:
+    with open(output_file_path / f'{file_name}', 'w') as f:
         json.dump(predictions, f, indent=4)
 
 def extract_texts_and_language(row):
@@ -149,7 +149,7 @@ def extract_instances(row):
     """
     # Handle missing or empty input
     if pd.isna(row) or row.strip() == "[]":
-        logging.warning("Empty or missing data encountered.")
+        #logging.warning("Empty or missing data encountered.")
         return ""
 
     # Attempt to parse row safely
@@ -170,7 +170,7 @@ def extract_instances(row):
             except (OSError, ValueError) as e:
                 logging.error(f"Invalid timestamp encountered: {e}")
                 return "Invalid timestamp"
-        logging.warning("Missing or non-numeric timestamp.")
+        #logging.warning("Missing or non-numeric timestamp.")
         return "No timestamp"
 
     # Process timestamps
@@ -179,5 +179,5 @@ def extract_instances(row):
     # Join formatted dates with ' and '
     result = " and ".join(formatted_dates) if formatted_dates else "No valid timestamps"
     
-    logging.info(f"Extracted instances: {result}")
+    #logging.info(f"Extracted instances: {result}")
     return result
