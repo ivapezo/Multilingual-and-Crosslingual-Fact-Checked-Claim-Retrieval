@@ -1,11 +1,12 @@
 {
     "experiment_name": "monolingual_bm25",
-    "data_dir": "Task7/data",
-    "output_dir": "Task7/results",
+    "data_dir": "Task7/data/clef-2021",
+    "output_dir": "Task7/results/clef-2021",
     "preprocessing_config": "Task7/config/preprocessing_config.json",
     "tokenizer_config": "Task7/config/tokenizer_config.json",
     "model_config": "Task7/config/model_config_bm25.json",
-    "languages": ["crosslingual"],
+    "task": ["monolingual"],
+    "languages": ["eng"],
     "stages": ["train"],
     "top_n": 100
 }

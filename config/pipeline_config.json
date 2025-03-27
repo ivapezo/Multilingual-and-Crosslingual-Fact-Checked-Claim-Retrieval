@@ -3,51 +3,31 @@
         {
             "model_name": "BiEncoderRetriever",
             "retriever_model": "BAAI/bge-multilingual-gemma2",
-            "top_n": 400,
-            "max_length": 4096,
+            "top_n": 300,
+            "max_length": 1024,
             "task_description": "Retrieve the most relevant fact-checked claims that either support or counter the main statements in the given post. Prioritize high contextual similarity to the main claim, focusing on factual and subject alignment.",
-            "save_predictions": "predictions_400_eng",
-            "version": 1
+            "save_predictions": "predictions_400_eng.json",
+            "version": 0
         },
         {
-            "model_name": "CrossEncoderRetriever",
+            "model_name": "BiEncoderRetriever",
             "retriever_model": "intfloat/multilingual-e5-large-instruct",
-            "top_n": 400,
-            "max_length": 4096,
+            "top_n": 300,
+            "max_length": 1024,
             "task_description": "Retrieve the most relevant fact-checked claims that either support or counter the main statements in the given post. Prioritize high contextual similarity to the main claim, focusing on factual and subject alignment.",
-            "save_predictions": "predictions_400_eng",
-            "version": 1
+            "save_predictions": "predictions_400_eng.json",
+            "version": 0
         }
     ],
     "rerankers": [
         {
-            "model_name": "CrossEncoderReranker",
-            "reranker_model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
-            "max_length": 8192,
-            "top_n": 50,
-            "top_predictions": "retriever_aggregated/predictions_100.json",
-            "task_description": "Given a claim, rerank the fact-checked claims that either support or reject the main statements in the given post. Prioritize high contextual similarity to the main claim, focusing on factual and subject alignment.",
-            "save_predictions": "predictions",
-            "version": 0
-        },
-        {
-            "model_name": "CrossEncoderGritLMReranker",
-            "reranker_model": "GritLM/GritLM-7B",
-            "max_length": 8192,
-            "top_n": 50,
-            "top_predictions": "retriever_aggregated/predictions_100.json",
-            "task_description": "Given a claim, rerank the fact-checked claims that either support or reject the main statements in the given post. Prioritize high contextual similarity to the main claim, focusing on factual and subject alignment.",
-            "save_predictions": "predictions",
-            "version": 0
-        },
-        {
             "model_name": "BiEncoderReranker",
             "reranker_model": "nvidia/NV-Embed-v2",
-            "max_length": 2768,
+            "max_length": 1024,
             "top_n": 50,
-            "top_predictions": "retriever_aggregated/predictions_100.json",
+            "top_predictions": "aggregated_retrieval/aggregated_retrieval.json",
             "task_description": "Given a claim, rerank the fact-checked claims that either support or reject the main statements in the given post. Prioritize high contextual similarity to the main claim, focusing on factual and subject alignment.",
-            "save_predictions": "predictions",
+            "save_predictions": "predictions.json",
             "version": 0
         }
     ],
@@ -56,8 +36,8 @@
         {
         "top_n": 150,
         "predictions_dirs": [
-                            "predictions_retriever_intfloat/multilingual-e5-large-instruct/predictions_100_eng.json",
-                            "predictions_bm25_top_400_eng/predictions.json",
+                            "predictions_retriever_intfloat/multilingual-e5-large-instruct/predictions_400_eng.json",
+                            "bm25_predictions/bm25_predictions.json",
                             "predictions_retriever_BAAI/bge-multilingual-gemma2/predictions_400_eng.json"
                         ],
         "output_dir": "retriever_aggregated",
@@ -68,13 +48,18 @@
         {
         "top_n": 10,
         "predictions_dirs": [
-                            "aggregated_predictions_reranker_Alibaba-NLP/gte-Qwen2-7B-instruct/predictions_eng.json",
-                            "aggregated_predictions_reranker_GritLM/GritLM-7B/predictions.json",
-                            "aggregated_predictions_reranker_nvidia/NV-Embed-v2/predictions_eng.json"
+                            "predictions_reranker_Alibaba-NLP/gte-Qwen2-7B-instruct/predictions.json",
+                            "predictions_reranker_GritLM/GritLM-7B/predictions.json",
+                            "predictions_reranker_nvidia/NV-Embed-v2/predictions.json"
                         ],
         "output_dir": "reranker_aggregated",
         "output_file": "predictions"
         }
-
-
+    ,
+    "bm25":
+    {
+      "k1": 1.5,
+      "b": 0.85,
+      "top_n": 400
+    }
 }
