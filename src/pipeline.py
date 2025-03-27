@@ -134,6 +134,50 @@ if __name__ == "__main__":
         stages = experiment_config.get("stages", [])
         tasks = [{"language": lang, "stage": stage} for lang in languages for stage in stages]
 
+        # Step 1: Run Retrieval Models (Neural & BM25)
+        retrieval_results = process_model_predictions(
+            pipeline_config["retrievers"],
+            tasks,
+            experiment_config,
+            available_devices
+        )
+
+        # Run BM25 Retrieval
+        bm25_config = pipeline_config.get("bm25", {})
+        top_n = bm25_config.get("top_n", 10)
+        k1 = bm25_config.get("k1", 1.5)
+        b = bm25_config.get("b", 0.75)
+
+        bm25_predictions = {}
+        for lang in languages:
+            for stage in stages:
+                fact_checks, posts = load_data_files(lang, stage)
+                if fact_checks is None or posts is None:
+                    continue
+
+                documents = fact_checks['claim'].fillna('') + " " + fact_checks['title'].fillna('')
+                bm25 = create_bm25_index(documents.tolist(), k1=k1, b=b)
+
+                for _, row in posts.iterrows():
+                    query = str(row["ocr"]) + " " + str(row["text"])
+                    retrieved_docs = retrieve_top_n(bm25, query, documents.tolist(), top_n)
+                    retrieved_doc_ids = [int(fact_checks.iloc[doc_id]["fact_check_id"]) for doc_id in retrieved_docs]
+                    bm25_predictions[int(row["post_id"])] = retrieved_doc_ids
+
+        # Save BM25 predictions
+        save_predictions(bm25_predictions, Path("Task7/data/bm25_predictions.json"), "bm25_predictions.json")
+
+        # Step 2: Ensemble Retrieval Results (Neural + BM25)
+        ensembler_config = pipeline_config.get("retriever_ensembler", {})
+        aggregated_retrieved = load_and_aggregate_predictions(
+            languages,
+            stages,
+            ensembler_config,
+            bm25_predictions
+        )
+
+        # Save aggregated retrieval results
+        save_predictions(aggregated_retrieved, Path("Task7/data/aggregated_retrieval.json"), "aggregated_retrieval.json")
         
         # Step 3: Run Rerankers
         reranked_results = process_model_predictions(
