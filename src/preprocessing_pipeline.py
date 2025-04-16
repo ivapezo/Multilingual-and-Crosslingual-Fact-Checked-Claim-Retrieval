@@ -1,5 +1,6 @@
 import json
 import unicodedata
+import emoji
 from num2words import num2words
 import dateparser
 import nltk
@@ -10,6 +11,7 @@ from nltk.corpus import wordnet
 from nltk.corpus import stopwords
 import simplemma
 from textblob import TextBlob
+import malaya
 
 # Download necessary NLTK data for preprocessing
 #nltk.download("stopwords")
@@ -21,6 +23,7 @@ with open("Task7/config/language_mappings.json", "r") as f:
 lemmer_codes = mappings["lemmer_codes"]
 adv_encoding = mappings["adv_encoding"]
 nltk_encoding = mappings["nltk_encoding"]
+stem_encoding = mappings["stem_encoding"]
 
 def remove_punctuation(text: str):
     """
@@ -95,6 +98,19 @@ def remove_emoji(text: str):
                            "]+", flags=re.UNICODE)
     return emoji_pattern.sub(r'', text)
 
+def transcribe_emoji(input_text: str, language_code: str):
+    """
+    Transcribe emojis into the language of the text.
+    
+    Args:
+        text (str): The input text.
+        language_code (str): The language code to transcribe the emojis.
+    
+    Returns:
+        str: The input text with transcribed emojis.
+    """
+    return emoji.demojize(input_text, language=language_code, delimiters=(" ", " "))
+
 def remove_html(text: str):
     """
     Removes html from text.
@@ -108,9 +124,9 @@ def remove_html(text: str):
     html_pattern = re.compile('<.*?>')
     return html_pattern.sub(r'', text)
 
-def correct_spelling_and_grammar(text: str):
+def correct_spelling(text: str):
     """
-    Corrects grammar and spelling of the given text.
+    Corrects spelling of the given text.
     
     Args:
         text (str): The input text to be corrected.
@@ -171,6 +187,25 @@ def lemmatize(text:str, lang:str):
         ]
     return ' '.join(lemmatized_text)
 
+def stemming(input_text: str, lang: str):
+    """
+    Stems the input text based on the specified language.
+
+    Args:
+        input_text (str): The input text to be stemmed.
+        lang (str): The language of the text.
+
+    Returns:
+        str: The stemmed text.
+    """
+    if lang in stem_encoding:
+        stemmer = nltk.stem.SnowballStemmer(stem_encoding[lang])
+        input_text = ' '.join([stemmer.stem(word) for word in input_text.split()])
+    elif lang == 'msa':
+        model = malaya.stem.huggingface()
+        input_text = model.stem(input_text)
+    return input_text
+
 def preprocessing(text: str, lang: str):
     """
     Applies the full preprocessing pipeline to the input text based on the specified language.
@@ -189,7 +224,7 @@ def preprocessing(text: str, lang: str):
     text = remove_html(text)
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     text = re.sub(r'\&\w*;', '', text)
-    #text = correct_spelling_and_grammar(text)
+    #text = correct_spelling(text)
     text = remove_duplicates(text)
     text = unicodedata.normalize('NFKD', text)
     text = re.sub(r'(.)\1{2,}', r'\1', text)
