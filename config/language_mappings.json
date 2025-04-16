@@ -9,6 +9,10 @@
             "slv": "sl", "sqi": "sq", "swe": "sv", "swa": "sw", "tgl": "tl", "tur": "tr", "ukr": "uk"
         },
 
+    "stem_encoding": {
+        "eng":"english", "spa":"spanish", "fra":"french", "deu":"german", "por":"portuguese", "ara":"arabic"
+        },
+
     "adv_encoding": {
             "ara": "arabic","aze": "azerbaijani","ben": "bengali", "cat": "catalan", "zho": "chinese",
             "hrv": "croatian", "dan": "danish", "nld": "dutch", "eng": "english", "fin": "finnish", 
