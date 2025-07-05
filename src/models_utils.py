@@ -3,12 +3,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from typing import Dict, List, Union
+from typing import Dict, List
 import torch 
 import torch.nn.functional as F
 from tqdm import tqdm
+import time  # Import time module for measuring execution time
+import mlflow
 
-from helpers import calculate_success_at_10, load_config, preprocess_dataframe, save_predictions
+from helpers import calculate_success_at_10, load_config, preprocess_dataframe
+
+mlflow.set_experiment("retrieval_reranking_experiments")
 
 def get_retriever(config: Dict, device:str):
     """
@@ -189,16 +193,16 @@ def process_language_stage(
     # Combine relevant columns into a single 'text' column
     fact_checks["text"] = fact_checks.apply(
         lambda row: (
-            f"This is a fact-checked claim: {row['claim']} "
-            f"with the title '{row['title']}' posted on {row['instances']}. "
+            f"claim: {row['claim']} "
+            f"title:{row['title']} instances:{row['instances']} "
         ),
         axis=1
     )
     posts["text"] = posts.apply(
         lambda row: (
-            f"The following claim was posted: {row['ocr']} "
-            f"{row['text']} posted on {row['instances']}. "
-            f"The content is labeled as: {row['verdicts']}."
+            f"ocr: {row['ocr']} "
+            f"text: {row['text']} instances:{row['instances']} "
+            f"verdict: {row['verdicts']}"
         ),
         axis=1
     )
@@ -212,61 +216,97 @@ def process_language_stage(
     model_name = model_config["model_name"]
     logging.info(f"Retrieving documents for Language: {lang}, Stage: {stage} using {model_name}")
     
-    try:
-        process_function = model.rerank_batch_with_ids if is_reranker else model.retrieve_batch_with_ids
-        process_kwargs = {"fact_checks": fact_checks, "posts": posts, "task_description": task_description, "n": model_config.get("top_n", 10), "max_length": model_config.get("max_length", 512)}
+    with mlflow.start_run():
+        # Log parameters
+        mlflow.log_param("model", model_config["model_name"])
+        mlflow.log_param("batch_size", model_config.get("batch_size", 32))
+        mlflow.log_param("language", lang)
+        mlflow.log_param("stage", stage)
+        mlflow.log_param("top_n", model_config.get("top_n", 10))
+        mlflow.log_param("max_length", model_config.get("max_length", 512))
+        mlflow.log_param("task_description", task_description)
+
+        try:
+            process_function = model.rerank_batch_with_ids if is_reranker else model.retrieve_batch_with_ids
+            process_kwargs = {
+                "fact_checks": fact_checks,
+                "posts": posts,
+                "task_description": task_description,
+                "n": model_config.get("top_n", 10),
+                "max_length": model_config.get("max_length", 512)
+            }
+            
+            if is_reranker:
+                process_kwargs["top_retrieved"] = top_retrieved
+
+            # Measure execution time for the retrieval/reranking process
+            start_time = time.time()
+            processed_documents = process_function(**process_kwargs)
+            end_time = time.time()
+
+            # Calculate and log the time taken
+            total_time = end_time - start_time
+            num_queries = len(posts)
+            time_per_query = total_time / num_queries if num_queries > 0 else 0
+            logging.info(f"Processing for Language: {lang}, Stage: {stage} took {total_time:.2f} seconds.")
+            logging.info(f"Average time per query: {time_per_query:.2f} seconds.")
+
+            logging.info(f"Processed documents for Language: {lang}, Stage: {stage}")
+        except torch.cuda.OutOfMemoryError as e:
+            logging.error(f"CUDA OOM during retrieval for Language: {lang}, Stage: {stage}. Error: {e}")
+            torch.cuda.empty_cache()
+            return {"language": lang, "stage": stage, "avg_success_at_10": None}
+        except Exception as e:
+            logging.error(f"Unexpected error during retrieval for Language: {lang}, Stage: {stage}. Error: {e}")
+            torch.cuda.empty_cache()
+            return {"language": lang, "stage": stage, "avg_success_at_10": None}
         
-        if is_reranker:
-            process_kwargs["top_retrieved"] = top_retrieved
+        # Initialize a new column in the DataFrame to store relevant documents
+        posts['relevant_docs'] = None
 
-        processed_documents = process_function(**process_kwargs)
-        logging.info(f"Processed documents for Language: {lang}, Stage: {stage}")
-    except torch.cuda.OutOfMemoryError as e:
-        logging.error(f"CUDA OOM during retrieval for Language: {lang}, Stage: {stage}. Error: {e}")
-        torch.cuda.empty_cache()
-        return {"language": lang, "stage": stage, "avg_success_at_10": None}
-    except Exception as e:
-        logging.error(f"Unexpected error during retrieval for Language: {lang}, Stage: {stage}. Error: {e}")
-        torch.cuda.empty_cache()
-        return {"language": lang, "stage": stage, "avg_success_at_10": None}
-    
-    # Initialize a new column in the DataFrame to store relevant documents
-    posts['relevant_docs'] = None
+        # Map relevant documents from mapping_df
+        for idx, row in posts.iterrows():
+            relevant_docs = mapping_df[mapping_df['post_id'] == row['post_id']]['fact_check_id'].tolist()
+            if relevant_docs:
+                posts.at[idx, 'relevant_docs'] = relevant_docs
 
-    # Map relevant documents from mapping_df
-    for idx, row in posts.iterrows():
-        relevant_docs = mapping_df[mapping_df['post_id'] == row['post_id']]['fact_check_id'].tolist()
-        if relevant_docs:
-            posts.at[idx, 'relevant_docs'] = relevant_docs
+        # Evaluate Success@10
+        total_success_at_10 = 0
+        evaluation_queries_len = 0
+        for idx, row in posts.iterrows():
+            relevant_docs = row["relevant_docs"]
+            post_id = row["post_id"]
+            if relevant_docs and str(post_id) in processed_documents:
+                evaluation_queries_len += 1
+                try:
+                    total_success_at_10 += calculate_success_at_10(
+                        processed_documents[str(post_id)], 
+                        relevant_docs, 
+                        model_config.get("top_n", 10)
+                    )
+                except Exception as e:
+                    logging.error(f"Error during Success@10 calculation for Post ID: {post_id}. Error: {e}")
+        
+        avg_success_at_10 = total_success_at_10 / evaluation_queries_len if evaluation_queries_len > 0 else 0
+        logging.info(f"Language: {lang}, Stage: {stage}, Avg S@10: {avg_success_at_10}")
 
-    # Evaluate Success@10
-    total_success_at_10 = 0
-    evaluation_queries_len = 0
-    for idx, row in posts.iterrows():
-        relevant_docs = row["relevant_docs"]
-        post_id = row["post_id"]
-        if relevant_docs and str(post_id) in processed_documents:
-            evaluation_queries_len += 1
-            try:
-                total_success_at_10 += calculate_success_at_10(
-                    processed_documents[str(post_id)], 
-                    relevant_docs, 
-                    model_config.get("top_n", 10)
-                )
-            except Exception as e:
-                logging.error(f"Error during Success@10 calculation for Post ID: {post_id}. Error: {e}")
-    
-    avg_success_at_10 = total_success_at_10 / evaluation_queries_len if evaluation_queries_len > 0 else 0
-    logging.info(f"Language: {lang}, Stage: {stage}, Avg S@10: {avg_success_at_10}")
+        # Log metrics
+        mlflow.log_metric("success_at_10", avg_success_at_10)
+        mlflow.log_metric("latency_per_query", time_per_query)
 
-    # Save the processed documents
-    try:
-        save_predictions_dir = model_config.get("save_predictions")
-        output_dir = lang_stage_path / f'predictions_{"reranker" if is_reranker else "retriever"}_{model_config["reranker_model"] if is_reranker else model_config["retriever_model"]}'
-        save_predictions(processed_documents, output_dir, save_predictions_dir)#_orig_new')
-        logging.info(f"Retrieved documents saved to {output_dir}/{save_predictions_dir}")#_orig_new")
-    except Exception as e:
-        logging.error(f"Error saving predictions for Language: {lang}, Stage: {stage}. Error: {e}")
+        # Set a tag that we can use to remind ourselves what this model was for
+        mlflow.set_logged_model_tags(
+            model_config["retriever_model"], {"Training Info": "Retrieval/Reranking for Language: {lang}, Stage: {stage}"}
+        )
+
+        # Save the processed documents
+        try:
+            save_predictions_dir = model_config.get("save_predictions")
+            output_dir = lang_stage_path / f'predictions_{"reranker" if is_reranker else "retriever"}_{model_config["reranker_model"] if is_reranker else model_config["retriever_model"]}'
+            #save_predictions(processed_documents, output_dir, save_predictions_dir)#_orig_new')
+            logging.info(f"Retrieved documents saved to {output_dir}/{save_predictions_dir}")#_orig_new")
+        except Exception as e:
+            logging.error(f"Error saving predictions for Language: {lang}, Stage: {stage}. Error: {e}")
 
     # Clear GPU cache after processing
     torch.cuda.empty_cache()
